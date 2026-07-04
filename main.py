@@ -60,6 +60,9 @@ class MainWindow(QWidget):
         col1 = QVBoxLayout()
         col1.addWidget(QLabel("Dane z ekranu (OCR)"))
         self.list_ocr = QListWidget()
+        self.btn_clear_ocr = QPushButton("Wyczyść kolumnę")
+        self.btn_clear_ocr.clicked.connect(self.list_ocr.clear)
+        col1.addWidget(self.btn_clear_ocr)
         col1.addWidget(self.list_ocr)
         self.btn_add_data = QPushButton("Dodaj dane")
         self.btn_add_data.clicked.connect(self.add_data_from_screen)
@@ -67,9 +70,12 @@ class MainWindow(QWidget):
         columns_layout.addLayout(col1)
 
         # Kolumna 2: dane ze skanera
+        self.list_scanner = QListWidget()
         col2 = QVBoxLayout()
         col2.addWidget(QLabel("Dane ze skanera"))
-        self.list_scanner = QListWidget()
+        self.btn_clear_scanner = QPushButton("Wyczyść kolumnę")
+        self.btn_clear_scanner.clicked.connect(self.clear_scanner_column)
+        col2.addWidget(self.btn_clear_scanner)
         col2.addWidget(self.list_scanner)
         self.scanner_input = QLineEdit()
         self.scanner_input.setPlaceholderText("Zeskanuj kod tutaj (Enter)")
@@ -79,9 +85,12 @@ class MainWindow(QWidget):
         columns_layout.addLayout(col2)
 
         # Kolumna 3: wynik porównania
+        self.list_result = QListWidget()
         col3 = QVBoxLayout()
         col3.addWidget(QLabel("Wynik porównania"))
-        self.list_result = QListWidget()
+        self.btn_clear_result = QPushButton("Wyczyść kolumnę")
+        self.btn_clear_result.clicked.connect(self.list_result.clear)
+        col3.addWidget(self.btn_clear_result)
         col3.addWidget(self.list_result)
         columns_layout.addLayout(col3)
 
@@ -99,6 +108,17 @@ class MainWindow(QWidget):
         # skaner ma HID-owo "wpisywać" tekst do pola scanner_input,
         # więc od razu dajemy mu focus
         self.scanner_input.setFocus()
+
+    def clear_all(self):
+        self.list_scanner.clear()
+        self.scanner_input.clear()
+        self.list_ocr.clear()
+        self.list_result.clear()
+        
+
+    def clear_scanner_column(self):
+        self.list_scanner.clear()
+        self.scanner_input.clear()
 
     def reset_scan_timer(self):
         self.scan_timer.start(100)
@@ -131,10 +151,6 @@ class MainWindow(QWidget):
     def compare_lists(self):
         # TODO: krok 7 -> porównanie self.list_ocr vs self.list_scanner,
         # wynik do self.list_result
-        pass
-
-    def clear_all(self):
-        # TODO: krok 7 -> wyczyścić wszystkie trzy listy + pole skanera
         pass
 
 
