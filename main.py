@@ -1,12 +1,12 @@
 import sys
 import mss
 from PIL import Image, ImageStat, ImageOps
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QTimer, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QTimer, QRect, QSettings
 from PyQt6.QtGui import QKeySequence, QPainter, QPen
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QListWidget, QLineEdit, QAbstractItemView
+    QPushButton, QLabel, QListWidget, QLineEdit, QAbstractItemView, QCheckBox, QSpinBox
 )
 import pytesseract
 
@@ -41,7 +41,7 @@ class ScreenSelector(QWidget):
 
     def mouseReleaseEvent(self, event):
         self.end_point = event.pos()
-        self.selection_made.emit(self.start_point, self.end_point)
+        self.selection_made.emit(self.mapToGlobal(self.start_point), self.mapToGlobal(self.end_point))
         self.close()
 
 class DeletableListWidget(QListWidget):
@@ -72,7 +72,7 @@ class MainWindow(QWidget):
         self.resize(900, 500)
 
         main_layout = QVBoxLayout(self)
-
+        self.settings = QSettings("ScanDiff", "ScanDiff")
         self.scan_timer = QTimer(self)
         self.scan_timer.setSingleShot(True)
         self.scan_timer.timeout.connect(self.add_scanned_code)
@@ -81,6 +81,25 @@ class MainWindow(QWidget):
         # --- górny pasek: przycisk czyszczenia ---
         top_bar = QHBoxLayout()
         top_bar.addStretch()
+        options_bar = QHBoxLayout()
+        self.chk_invert = QCheckBox("Odwracaj kolory (ciemny motyw)")
+        options_bar.addWidget(self.chk_invert)
+        options_bar.addWidget(QLabel("Skala OCR:"))
+        self.spin_scale = QSpinBox()
+        self.spin_scale.setRange(1, 5)
+        self.spin_scale.setSuffix("x")
+        self.chk_invert.setChecked(self.settings.value("invert_colors", True, type=bool))
+        self.spin_scale.setValue(self.settings.value("ocr_scale", 3, type=int))
+        self.chk_invert.stateChanged.connect(
+            lambda: self.settings.setValue("invert_colors", self.chk_invert.isChecked())
+        )
+        self.spin_scale.valueChanged.connect(
+            lambda: self.settings.setValue("ocr_scale", self.spin_scale.value())
+        )
+
+        options_bar.addWidget(self.spin_scale)
+        options_bar.addStretch()
+        main_layout.addLayout(options_bar)
         self.btn_clear = QPushButton("Wyczyść")
         self.btn_clear.clicked.connect(self.clear_all)
         top_bar.addWidget(self.btn_clear)
@@ -91,7 +110,7 @@ class MainWindow(QWidget):
 
         # Kolumna 1: dane z ekranu (OCR)
         col1 = QVBoxLayout()
-        col1.addWidget(QLabel("Dane z ekranu (OCR)"))
+        col1.addWidget(QLabel("Dane z ekranu"))
         self.list_ocr = DeletableListWidget()
         self.btn_clear_ocr = QPushButton("Wyczyść kolumnę")
         self.btn_clear_ocr.clicked.connect(self.list_ocr.clear)
@@ -137,9 +156,6 @@ class MainWindow(QWidget):
         compare_bar.addWidget(self.btn_compare)
         compare_bar.addStretch()
         main_layout.addLayout(compare_bar)
-
-        # skaner ma HID-owo "wpisywać" tekst do pola scanner_input,
-        # więc od razu dajemy mu focus
         self.scanner_input.setFocus()
 
     def clear_all(self):
@@ -164,10 +180,14 @@ class MainWindow(QWidget):
         
         img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
         img = img.convert("L")
-        mean_lightness = ImageStat.Stat(img).mean[0]
-        if mean_lightness < 128:
-            img = ImageOps.invert(img)
-        img = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)  
+        if self.chk_invert.isChecked():
+            avg_brightness = ImageStat.Stat(img).mean[0]
+            if avg_brightness < 128:
+                img = ImageOps.invert(img)
+
+        scale = self.spin_scale.value()
+        img = img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
+        # img.save("img.jpg")  
 
         text = pytesseract.image_to_string(img, config="--psm 6")
         lines = text.splitlines()
@@ -216,7 +236,6 @@ class MainWindow(QWidget):
                 for item in sorted(extra):
                     self.list_result.addItem(item)
         
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
