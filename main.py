@@ -1,11 +1,12 @@
 import sys
 import mss
-from PIL import Image
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QTimer
+from PIL import Image, ImageStat, ImageOps
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QTimer, QRect
+from PyQt6.QtGui import QKeySequence, QPainter, QPen
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QListWidget, QLineEdit
+    QPushButton, QLabel, QListWidget, QLineEdit, QAbstractItemView
 )
 import pytesseract
 
@@ -19,9 +20,21 @@ class ScreenSelector(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowOpacity(0.3)
         self.showFullScreen()
-
+        self.current_point = None
         self.start_point = None
         self.end_point = None
+
+    def mouseMoveEvent(self, event):
+        if self.start_point is not None:
+            self.current_point = event.pos()
+            self.update()
+
+    def paintEvent(self, event):
+        if self.start_point and self.current_point:
+            painter = QPainter(self)
+            pen = QPen(Qt.GlobalColor.red, 2)  
+            painter.setPen(pen)
+            painter.drawRect(QRect(self.start_point, self.current_point).normalized())
 
     def mousePressEvent(self, event):
         self.start_point = event.pos()
@@ -31,6 +44,26 @@ class ScreenSelector(QWidget):
         self.selection_made.emit(self.start_point, self.end_point)
         self.close()
 
+class DeletableListWidget(QListWidget):
+    def __init__(self):
+        super().__init__()
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            for item in self.selectedItems():
+                self.takeItem(self.row(item))
+        elif event.matches(QKeySequence.StandardKey.SelectAll):
+            self.selectAll()
+        elif event.matches(QKeySequence.StandardKey.Copy):
+            output = []
+            for text in self.selectedItems():
+                text = text.text()
+                output.append(text)
+            output = "\n".join(output)
+            QApplication.clipboard().setText(output)
+        else:
+            super().keyPressEvent(event)
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -59,7 +92,7 @@ class MainWindow(QWidget):
         # Kolumna 1: dane z ekranu (OCR)
         col1 = QVBoxLayout()
         col1.addWidget(QLabel("Dane z ekranu (OCR)"))
-        self.list_ocr = QListWidget()
+        self.list_ocr = DeletableListWidget()
         self.btn_clear_ocr = QPushButton("Wyczyść kolumnę")
         self.btn_clear_ocr.clicked.connect(self.list_ocr.clear)
         col1.addWidget(self.btn_clear_ocr)
@@ -70,7 +103,7 @@ class MainWindow(QWidget):
         columns_layout.addLayout(col1)
 
         # Kolumna 2: dane ze skanera
-        self.list_scanner = QListWidget()
+        self.list_scanner = DeletableListWidget()
         col2 = QVBoxLayout()
         col2.addWidget(QLabel("Dane ze skanera"))
         self.btn_clear_scanner = QPushButton("Wyczyść kolumnę")
@@ -85,7 +118,7 @@ class MainWindow(QWidget):
         columns_layout.addLayout(col2)
 
         # Kolumna 3: wynik porównania
-        self.list_result = QListWidget()
+        self.list_result = DeletableListWidget()
         col3 = QVBoxLayout()
         col3.addWidget(QLabel("Wynik porównania"))
         self.btn_clear_result = QPushButton("Wyczyść kolumnę")
@@ -130,6 +163,12 @@ class MainWindow(QWidget):
             screenshot = sct.grab(monitor)
         
         img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+        img = img.convert("L")
+        mean_lightness = ImageStat.Stat(img).mean[0]
+        if mean_lightness < 128:
+            img = ImageOps.invert(img)
+        img = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)  
+
         text = pytesseract.image_to_string(img, config="--psm 6")
         lines = text.splitlines()
         for line in lines:
@@ -149,9 +188,34 @@ class MainWindow(QWidget):
         self.scanner_input.clear()
 
     def compare_lists(self):
-        # TODO: krok 7 -> porównanie self.list_ocr vs self.list_scanner,
-        # wynik do self.list_result
-        pass
+        self.list_result.clear()
+        ocr_elements = []
+        scanner_elements = []
+        for i in range(self.list_ocr.count()):
+            item = self.list_ocr.item(i).text()
+            ocr_elements.append(item)
+        for i in range(self.list_scanner.count()):
+            item = self.list_scanner.item(i).text()
+            scanner_elements.append(item)
+        
+        ocr_set = set(ocr_elements)
+        scanner_set = set(scanner_elements)
+
+        missing = ocr_set - scanner_set
+        extra = scanner_set - ocr_set
+        
+        if not missing and not extra:
+            self.list_result.addItem("Brak różnic")
+        else:
+            if missing:
+                self.list_result.addItem(f"BRAK W SKANOWANIU:")
+                for item in sorted(missing):
+                    self.list_result.addItem(item)
+            if extra:
+                self.list_result.addItem(f"NADMIAR W SKANOWANIU:")
+                for item in sorted(extra):
+                    self.list_result.addItem(item)
+        
 
 
 if __name__ == "__main__":
